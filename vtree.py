@@ -6,7 +6,8 @@ import marshal
 import cPickle as pickle
 import time
 import shutil
-
+from numpy import inner,clip,arccos
+from numpy.linalg import norm
 
 """
 the basic idea:
@@ -20,9 +21,9 @@ the basic idea:
 
 def dist(a,b):
     #v=1-scipy.spatial.distance.cosine(a,b)
-    v=np.inner(a,b)/(np.sqrt(np.sum(a*a))*np.sqrt(np.sum(b*b)))
-    u=np.clip(v,-1,1)
-    return np.arccos(u)
+    v=inner(a,b)/(norm(a)*norm(b))
+    u=clip(v,-1,1)
+    return arccos(u)
 
         
 class VNode:
@@ -32,6 +33,14 @@ class VNode:
         self.data=[]
         self.children=[]
         self._load()
+
+    def depts(self,depth,info):
+        if len(self.children)==0:
+            info["mind"]=min(depth,info.get("mind",depth))
+            info["maxd"]=max(depth,info.get("maxd",depth))
+        else:
+            for o,nid in self.children:
+                self.tree._getNode(nid).depts(depth+1,info)
 
     def _load(self):
         self.data,self.children=self.tree._load(self.nid)
@@ -52,26 +61,38 @@ class VNode:
 
     def selectSplits(self):
         if len(self.children)==0:
-            a,b=map(lambda x: x[0],random.sample(self.data,2))
-            d=dist(a,b)
-            for x in self.data:
-                d0=dist(a,x[0])
-                d1=dist(b,x[0])
-                if d0>d1:
-                    if d0>d:
-                        d=d0
-                        b=x[0]
-                else:
-                    if d1>d:
-                        d=d1
-                        a=x[0]
+            #a,b=map(lambda x: x[0],random.sample(self.data,2))
+            #d=dist(a,b)
+            #for x in self.data:
+            #    d0=dist(a,x[0])
+            #    d1=dist(b,x[0])
+            #    if d0>d1:
+            #        if d0>d:
+            #            d=d0
+            #            b=x[0]
+            #    else:
+            #        if d1>d:
+            #            d=d1
+            #            a=x[0]
+            #a=a/norm(a)
+            #b=b/norm(a)
+            #c=(a+b)/2
+            #a,b=a-c,b-c
             self.children=[(a,self.tree._newNid()),(b,self.tree._newNid())]
             for o,nid in self.children:
                 self.tree._getNode(nid)
             self._dirty()
 
     def _split(self,depth):
-        self.selectSplits()
+        #self.selectSplits()
+        a,b=map(lambda x: x[0],random.sample(self.data,2))
+        #tmp=map(lambda x: (dist(a,x[0]),x),self.data)
+        #tmp.sort(key=lambda x: x[0])
+        #a,b=tmp[len(tmp)/2][1][0],tmp[len(tmp)/2+1][1][0]
+        a,b=a/norm(a),b/norm(b)
+        c=(a+b)/2
+        a,b=a-c,b-c
+        self.children=[(a,self.tree._newNid()),(b,self.tree._newNid())]
         for x in self.data:
             o,nid=min(self.children,key=lambda o_nid: dist(x[0],o_nid[0]))
             self.tree._getNode(nid).insert(depth+1,*x)
@@ -175,7 +196,7 @@ class VNode:
 
 class VTree:
     MAX_CACHE_SIZE=8192
-    LEAF_SIZE=64
+    LEAF_SIZE=256
     def __init__(self,path,dims):
         self.dims=dims
         self.path=os.path.abspath(path)
@@ -281,11 +302,16 @@ class VTree:
         lids={}
         for x in self._getNode("0").query(k,nids,lids):
             cnt=sum(lids.values())
-            yield x,len(nids),len(lids),cnt,float(cnt)/len(lids)
+            yield x,len(nids),len(lids),len(nids)-len(lids),cnt,float(cnt)/len(lids),float(cnt)/float(self._meta["size"])
 
     def flatQuery(self,k):
         for x in self._getNode("0").flatQuery(k):
             yield x
+
+    def depts(self):
+        info={}
+        self._getNode("0").depts(0,info)
+        return info
 
 if __name__=="__main__":
     isize=10
